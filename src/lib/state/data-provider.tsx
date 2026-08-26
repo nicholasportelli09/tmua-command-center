@@ -26,6 +26,8 @@ import type {
 import { computeTotal } from "@/lib/domain/calculations";
 import { localRepo } from "@/lib/store/local-repository";
 import { createInitialData } from "@/lib/store/seed";
+import { getStoredKey, hashKey, storeKey } from "@/lib/store/workspace";
+import { getSyncStatus, pullSnapshot, pushSnapshot } from "@/lib/store/sync";
 import { newId } from "@/lib/utils/id";
 import { todayISO } from "@/lib/utils/time";
 import { DATA_VERSION } from "@/lib/domain/constants";
@@ -47,11 +49,15 @@ export interface LogSittingInput {
 }
 
 type Status = "loading" | "ready" | "error";
+export type SyncState = "disabled" | "idle" | "syncing" | "error";
 
 interface DataContextValue {
   status: Status;
   data: AppData | null;
   todayISO: string;
+  syncState: SyncState;
+  syncNow: () => void;
+  adoptWorkspaceKey: (key: string) => Promise<{ ok: boolean; error?: string }>;
   // sittings
   addSitting: (input: LogSittingInput) => Sitting;
   updateSitting: (id: string, patch: Partial<Sitting>) => void;
@@ -116,6 +122,18 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
   const dataRef = useRef<AppData | null>(null);
   dataRef.current = data;
 
+  const [syncState, setSyncState] = useState<SyncState>("disabled");
+  const configuredRef = useRef(false);
+  const keyHashRef = useRef<string | null>(null);
+  const pushTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const doPushRef = useRef<(() => void) | null>(null);
+
+  const scheduleSync = useCallback(() => {
+    if (!configuredRef.current || !keyHashRef.current) return;
+    if (pushTimer.current) clearTimeout(pushTimer.current);
+    pushTimer.current = setTimeout(() => doPushRef.current?.(), 2500);
+  }, []);
+
   useEffect(() => {
     let cancelled = false;
     getBoot()
@@ -135,14 +153,20 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     };
   }, []);
 
-  const patch = useCallback((updater: (d: AppData) => AppData) => {
-    setData((prev) => {
-      if (!prev) return prev;
-      const next = updater(prev);
-      dataRef.current = next;
-      return next;
-    });
-  }, []);
+  const patch = useCallback(
+    (updater: (d: AppData) => AppData) => {
+      const ts = new Date().toISOString();
+      setData((prev) => {
+        if (!prev) return prev;
+        const next = { ...updater(prev), lastMutatedAt: ts };
+        dataRef.current = next;
+        return next;
+      });
+      localRepo.saveKv("lastMutatedAt", ts);
+      scheduleSync();
+    },
+    [scheduleSync],
+  );
 
   // ---- Sittings ----
   const addSitting = useCallback(
@@ -470,13 +494,89 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     const fresh = await createInitialData();
     await localRepo.initWorkspace(fresh);
     setData(fresh);
+    if (configuredRef.current) {
+      const k = getStoredKey();
+      keyHashRef.current = k ? await hashKey(k) : null;
+    }
   }, []);
+
+  // ---- Cloud sync (automatic, newest-wins) ----
+  const doPush = useCallback(async () => {
+    if (!configuredRef.current || !keyHashRef.current) return;
+    setSyncState("syncing");
+    const res = await pushSnapshot(keyHashRef.current, exportData());
+    setSyncState(res.ok ? "idle" : "error");
+  }, [exportData]);
+  doPushRef.current = () => void doPush();
+
+  const runSync = useCallback(async () => {
+    if (!configuredRef.current || !keyHashRef.current) return;
+    setSyncState("syncing");
+    const pull = await pullSnapshot(keyHashRef.current);
+    if (pull.data) {
+      const cloud = pull.data;
+      const localTs = dataRef.current?.lastMutatedAt ?? "";
+      const cloudTs = cloud.lastMutatedAt ?? "";
+      // Newest wins: adopt the cloud copy only when it is strictly newer.
+      if (!localTs || cloudTs > localTs) {
+        await importData(cloud);
+        setSyncState("idle");
+        return;
+      }
+    }
+    const push = await pushSnapshot(keyHashRef.current, exportData());
+    setSyncState(push.ok ? "idle" : "error");
+  }, [exportData, importData]);
+
+  const adoptWorkspaceKey = useCallback(
+    async (key: string): Promise<{ ok: boolean; error?: string }> => {
+      const st = await getSyncStatus();
+      if (!st.configured) return { ok: false, error: "Cloud sync isn't configured on the server." };
+      const kh = await hashKey(key.trim());
+      setSyncState("syncing");
+      const pull = await pullSnapshot(kh);
+      if (!pull.data) {
+        setSyncState("idle");
+        return { ok: false, error: pull.error ?? "No workspace found for that key." };
+      }
+      storeKey(key.trim());
+      keyHashRef.current = kh;
+      configuredRef.current = true;
+      await importData(pull.data);
+      setSyncState("idle");
+      return { ok: true };
+    },
+    [importData],
+  );
+
+  // On load: detect config, then do one two-way sync (pull-merge or push).
+  useEffect(() => {
+    if (status !== "ready") return;
+    let cancelled = false;
+    (async () => {
+      const st = await getSyncStatus();
+      if (cancelled) return;
+      configuredRef.current = st.configured;
+      if (!st.configured) return setSyncState("disabled");
+      const key = getStoredKey();
+      if (!key) return setSyncState("disabled");
+      keyHashRef.current = await hashKey(key);
+      if (cancelled) return;
+      await runSync();
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [status, runSync]);
 
   const value = useMemo<DataContextValue>(
     () => ({
       status,
       data,
       todayISO: todayISO(),
+      syncState,
+      syncNow: () => void runSync(),
+      adoptWorkspaceKey,
       addSitting,
       updateSitting,
       deleteSitting,
@@ -504,7 +604,8 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       resetAll,
     }),
     [
-      status, data, addSitting, updateSitting, deleteSitting, addSource, updateSource,
+      status, data, syncState, runSync, adoptWorkspaceKey,
+      addSitting, updateSitting, deleteSitting, addSource, updateSource,
       setPaperStatus, deleteSource, addModule, updateModule, deleteModule, addWeek, addProfile,
       updateProfile, deleteProfile, updateExam, updateSettings, saveAttempts, updateAttempt,
       addMaterial, updateMaterial, deleteMaterial, getMaterialBlob, exportData, importData, resetAll,

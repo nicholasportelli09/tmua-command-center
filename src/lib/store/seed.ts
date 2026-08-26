@@ -43,6 +43,7 @@ export async function createInitialData(): Promise<AppData> {
   return {
     version: DATA_VERSION,
     exportedAt: new Date().toISOString(),
+    lastMutatedAt: new Date().toISOString(),
     workspace: { id: newId(), createdAt: new Date().toISOString(), keyHash },
     exam: { ...DEFAULT_EXAM },
     settings: { ...DEFAULT_SETTINGS },

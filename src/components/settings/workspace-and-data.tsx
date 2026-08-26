@@ -1,7 +1,18 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Check, Copy, Cloud, CloudOff, Download, Eye, EyeOff, Upload, RotateCcw } from "lucide-react";
+import {
+  Check,
+  Cloud,
+  CloudOff,
+  Copy,
+  Download,
+  Eye,
+  EyeOff,
+  RefreshCw,
+  RotateCcw,
+  Upload,
+} from "lucide-react";
 import { useData } from "@/lib/state/data-provider";
 import { useToast } from "@/components/ui/toast";
 import { SettingsCard } from "./settings-card";
@@ -9,26 +20,33 @@ import { Button } from "@/components/ui/button";
 import { Field, Input } from "@/components/ui/form";
 import { Badge } from "@/components/ui/primitives";
 import { ConfirmDialog } from "@/components/ui/confirm";
-import { getStoredKey, hashKey, storeKey } from "@/lib/store/workspace";
-import { getSyncStatus, pullSnapshot, pushSnapshot } from "@/lib/store/sync";
+import { getStoredKey } from "@/lib/store/workspace";
 import { exportCSV, exportJSON, parseImport } from "@/lib/store/backup";
+import { cn } from "@/lib/utils/cn";
+
+const STATUS: Record<string, { label: string; tone: string }> = {
+  idle: { label: "Synced", tone: "text-pos" },
+  syncing: { label: "Syncing…", tone: "text-accent" },
+  error: { label: "Sync error", tone: "text-neg" },
+  disabled: { label: "Local only", tone: "text-faint" },
+};
 
 export function WorkspaceSection() {
-  const { data, exportData, importData } = useData();
+  const { syncState, syncNow, adoptWorkspaceKey } = useData();
   const { toast } = useToast();
   const [key, setKey] = useState<string | null>(null);
   const [reveal, setReveal] = useState(false);
-  const [configured, setConfigured] = useState<boolean | null>(null);
-  const [busy, setBusy] = useState(false);
   const [existingKey, setExistingKey] = useState("");
-  const [pendingRestore, setPendingRestore] = useState<null | { source: "cloud"; key: string }>(null);
+  const [busy, setBusy] = useState(false);
+  const [pendingKey, setPendingKey] = useState<string | null>(null);
 
   useEffect(() => {
     setKey(getStoredKey());
-    getSyncStatus().then((s) => setConfigured(s.configured));
-  }, []);
+  }, [syncState]);
 
   const masked = key ? key.slice(0, 9) + "••••••••••" : "—";
+  const on = syncState !== "disabled";
+  const status = STATUS[syncState] ?? STATUS.disabled;
 
   async function copyKey() {
     if (!key) return;
@@ -40,72 +58,36 @@ export function WorkspaceSection() {
     }
   }
 
-  async function backupNow() {
-    if (!key || !data) return;
+  async function confirmAdopt() {
+    if (!pendingKey) return;
     setBusy(true);
-    const hash = await hashKey(key);
-    const res = await pushSnapshot(hash, exportData());
+    const res = await adoptWorkspaceKey(pendingKey);
     setBusy(false);
-    toast(res.ok ? { title: "Backed up to cloud", tone: "success" } : { title: "Backup failed", description: res.error, tone: "warn" });
-  }
-
-  async function restoreNow() {
-    if (!key) return;
-    setBusy(true);
-    const hash = await hashKey(key);
-    const res = await pullSnapshot(hash);
-    setBusy(false);
-    if (res.data) {
-      await importData(res.data);
-      toast({ title: "Restored from cloud", tone: "success" });
-    } else {
-      toast({ title: "Nothing to restore", description: res.error ?? "No snapshot found for this key.", tone: "warn" });
-    }
-  }
-
-  async function useExisting() {
-    const k = existingKey.trim();
-    if (!k) return;
-    if (!configured) {
-      toast({
-        title: "Cloud sync not configured",
-        description: "Import a JSON backup below to move data between devices.",
-        tone: "warn",
-      });
-      return;
-    }
-    setPendingRestore({ source: "cloud", key: k });
-  }
-
-  async function confirmUseExisting() {
-    if (!pendingRestore) return;
-    setBusy(true);
-    const hash = await hashKey(pendingRestore.key);
-    const res = await pullSnapshot(hash);
-    setBusy(false);
-    if (res.data) {
-      storeKey(pendingRestore.key);
-      await importData(res.data);
-      setKey(pendingRestore.key);
+    if (res.ok) {
+      setKey(getStoredKey());
       setExistingKey("");
-      toast({ title: "Workspace loaded", description: "This device now uses that workspace.", tone: "success" });
+      toast({ title: "Workspace loaded", description: "This device now shares that workspace.", tone: "success" });
     } else {
-      toast({ title: "No workspace found", description: res.error ?? "Check the key and try again.", tone: "warn" });
+      toast({ title: "Couldn't load workspace", description: res.error, tone: "warn" });
     }
-    setPendingRestore(null);
+    setPendingKey(null);
   }
 
   return (
     <SettingsCard
       title="Workspace & sync"
-      description="Your data lives locally on this device. The private sync key lets you carry it to another device."
+      description={
+        on
+          ? "Automatic cloud sync: your data is pulled when you open the app and saved after every change. Use the same sync key on another device to share this workspace."
+          : "Your data is stored locally on this device. Cloud sync is off — move data with Export/Import below, or configure Supabase to sync."
+      }
     >
       <div className="flex flex-col gap-4">
         <div>
           <div className="mb-1.5 flex items-center justify-between">
             <p className="text-[12px] font-medium text-muted">Your private sync key</p>
-            {configured === null ? null : configured ? (
-              <Badge tone="pos"><Cloud className="h-3 w-3" /> Cloud sync on</Badge>
+            {on ? (
+              <Badge tone="pos"><Cloud className="h-3 w-3" /> Auto-sync on</Badge>
             ) : (
               <Badge tone="faint"><CloudOff className="h-3 w-3" /> Local only</Badge>
             )}
@@ -123,13 +105,14 @@ export function WorkspaceSection() {
           </div>
         </div>
 
-        {configured && (
-          <div className="flex flex-wrap gap-2 border-t border-line pt-4">
-            <Button variant="default" size="sm" onClick={backupNow} disabled={busy}>
-              <Cloud className="h-3.5 w-3.5" /> Back up now
-            </Button>
-            <Button variant="subtle" size="sm" onClick={restoreNow} disabled={busy}>
-              <Download className="h-3.5 w-3.5" /> Restore from cloud
+        {on && (
+          <div className="flex items-center justify-between border-t border-line pt-4">
+            <span className={cn("inline-flex items-center gap-1.5 text-[12.5px]", status.tone)}>
+              <RefreshCw className={cn("h-3.5 w-3.5", syncState === "syncing" && "animate-spin")} />
+              {status.label}
+            </span>
+            <Button variant="subtle" size="sm" onClick={syncNow} disabled={syncState === "syncing"}>
+              Sync now
             </Button>
           </div>
         )}
@@ -138,7 +121,7 @@ export function WorkspaceSection() {
           <Field
             label="Use an existing workspace"
             hint={
-              configured
+              on
                 ? "Enter a sync key from another device to load its workspace here (replaces local data)."
                 : "Cloud sync isn't configured, so use Import below to move a backup between devices."
             }
@@ -150,7 +133,12 @@ export function WorkspaceSection() {
                 placeholder="TMUA-XXXX-XXXX-…"
                 className="mono flex-1"
               />
-              <Button variant="default" size="sm" onClick={useExisting} disabled={busy || !existingKey.trim()}>
+              <Button
+                variant="default"
+                size="sm"
+                onClick={() => setPendingKey(existingKey.trim())}
+                disabled={busy || !existingKey.trim() || !on}
+              >
                 <Check className="h-3.5 w-3.5" /> Load
               </Button>
             </div>
@@ -159,9 +147,9 @@ export function WorkspaceSection() {
       </div>
 
       <ConfirmDialog
-        open={!!pendingRestore}
-        onClose={() => setPendingRestore(null)}
-        onConfirm={confirmUseExisting}
+        open={!!pendingKey}
+        onClose={() => setPendingKey(null)}
+        onConfirm={confirmAdopt}
         title="Replace this device's data?"
         description="Loading another workspace will overwrite the results currently on this device."
         confirmLabel="Load workspace"
@@ -184,8 +172,7 @@ export function DataSection() {
     const reader = new FileReader();
     reader.onload = () => {
       try {
-        const parsed = parseImport(String(reader.result));
-        setPendingImport(parsed);
+        setPendingImport(parseImport(String(reader.result)));
       } catch (err) {
         toast({ title: "Import failed", description: (err as Error).message, tone: "warn" });
       }

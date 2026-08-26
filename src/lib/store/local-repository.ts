@@ -69,6 +69,7 @@ export const localRepo = {
     if (!workspace) return null;
     const exam = (await d.get("kv", "exam")) as ExamSettings;
     const settings = (await d.get("kv", "settings")) as AppSettings;
+    const lastMutatedAt = (await d.get("kv", "lastMutatedAt")) as string | undefined;
     const [sittings, sources, course, conversionProfiles, attempts, materials] = await Promise.all([
       d.getAll("sittings") as Promise<Sitting[]>,
       d.getAll("sources") as Promise<PaperSource[]>,
@@ -80,6 +81,7 @@ export const localRepo = {
     return {
       version: 1,
       exportedAt: new Date().toISOString(),
+      lastMutatedAt: lastMutatedAt ?? new Date().toISOString(),
       workspace,
       exam,
       settings,
@@ -97,12 +99,13 @@ export const localRepo = {
     await d.put("kv", data.workspace, "workspace");
     await d.put("kv", data.exam, "exam");
     await d.put("kv", data.settings, "settings");
+    await d.put("kv", data.lastMutatedAt ?? new Date().toISOString(), "lastMutatedAt");
     await putAll("sources", data.sources);
     await putAll("course", data.course);
     await putAll("profiles", data.conversionProfiles);
   },
 
-  async saveKv(key: "exam" | "settings" | "workspace", value: unknown): Promise<void> {
+  async saveKv(key: "exam" | "settings" | "workspace" | "lastMutatedAt", value: unknown): Promise<void> {
     const d = await db();
     await d.put("kv", value, key);
   },
@@ -161,6 +164,7 @@ export const localRepo = {
     await d.put("kv", data.workspace, "workspace");
     await d.put("kv", data.exam, "exam");
     await d.put("kv", data.settings, "settings");
+    await d.put("kv", data.lastMutatedAt ?? new Date().toISOString(), "lastMutatedAt");
     await putAll("sittings", data.sittings);
     await putAll("sources", data.sources);
     await putAll("course", data.course);

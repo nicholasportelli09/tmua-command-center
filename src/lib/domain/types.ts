@@ -164,6 +164,8 @@ export interface Workspace {
 export interface AppData {
   version: number;
   exportedAt: string;
+  /** ISO timestamp of the last local change — used to resolve sync conflicts (newest wins). */
+  lastMutatedAt?: string;
   workspace: Workspace;
   exam: ExamSettings;
   settings: AppSettings;
