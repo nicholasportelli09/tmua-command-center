@@ -1,26 +1,232 @@
 @import "tailwindcss";
 
+/*
+  TMUA Command Center — design system
+  Premium dark quantitative terminal. Near-black surfaces, one cool accent,
+  restrained semantic states, mono numerals for a trading-desk feel.
+*/
+
+@theme {
+  /* Surfaces */
+  --color-base: #0a0b0e;
+  --color-base-2: #0c0e12;
+  --color-panel: #101319;
+  --color-panel-2: #151922;
+  --color-raised: #1a1f2a;
+
+  /* Lines */
+  --color-line: #1e232d;
+  --color-line-strong: #2a313d;
+
+  /* Ink */
+  --color-ink: #e8eaf0;
+  --color-muted: #8b93a3;
+  --color-faint: #5a616e;
+
+  /* Accent — restrained cool blue */
+  --color-accent: #5b9dff;
+  --color-accent-dim: #3f6fb8;
+  --color-accent-soft: #16233b;
+
+  /* Semantic */
+  --color-pos: #35c08b;
+  --color-pos-soft: #10231d;
+  --color-neg: #f26d6d;
+  --color-neg-soft: #2a1618;
+  --color-warn: #e0b341;
+  --color-warn-soft: #2a2312;
+
+  /* Type */
+  --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, "SFMono-Regular", monospace;
+
+  /* Motion */
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
+
+  /* Radius scale */
+  --radius-xs: 5px;
+  --radius-sm: 8px;
+  --radius-md: 11px;
+  --radius-lg: 14px;
+  --radius-xl: 18px;
+}
+
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  color-scheme: dark;
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+* {
+  border-color: var(--color-line);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+html,
+body {
+  background: var(--color-base);
+  color: var(--color-ink);
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  font-feature-settings: "cv01", "cv03", "ss01";
+  letter-spacing: -0.011em;
+}
+
+/* Tabular, mono numerals for data */
+.tnum {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum";
+}
+.mono {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Selection */
+::selection {
+  background: color-mix(in srgb, var(--color-accent) 30%, transparent);
+  color: #fff;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--color-line-strong);
+  border-radius: 999px;
+  border: 3px solid var(--color-base);
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #38414f;
+}
+
+/* Focus ring */
+:where(button, a, input, select, textarea, [tabindex]):focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--color-accent) 60%, transparent);
+  outline-offset: 2px;
+  border-radius: var(--radius-xs);
+}
+
+/* Subtle top-of-page grain/vignette hook */
+.app-bg {
+  background:
+    radial-gradient(1200px 600px at 78% -10%, rgba(91, 157, 255, 0.05), transparent 60%),
+    radial-gradient(900px 500px at 8% 0%, rgba(53, 192, 139, 0.03), transparent 55%),
+    var(--color-base);
+}
+
+/* Panel primitive */
+.panel {
+  background: var(--color-panel);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-lg);
+}
+.panel-2 {
+  background: var(--color-panel-2);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-md);
+}
+
+/* Hairline label */
+.eyebrow {
+  font-size: 10.5px;
+  font-weight: 500;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--color-faint);
+}
+
+/* Pressable feedback */
+.pressable {
+  transition: transform 140ms var(--ease-out), background-color 140ms var(--ease-out),
+    border-color 140ms var(--ease-out), color 140ms var(--ease-out), opacity 140ms var(--ease-out);
+}
+.pressable:active {
+  transform: scale(0.975);
+}
+
+/* Enter animation for mounted panels */
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.rise {
+  animation: rise 0.5s var(--ease-out) both;
+}
+
+@keyframes fadein {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+.fadein {
+  animation: fadein 0.35s var(--ease-out) both;
+}
+
+/* Dialog / overlay */
+@keyframes overlay-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@keyframes dialog-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+.overlay-in {
+  animation: overlay-in 0.18s var(--ease-out) both;
+}
+.dialog-in {
+  animation: dialog-in 0.22s var(--ease-out) both;
+}
+
+/* Number input: strip spinners for a cleaner terminal feel */
+input[type="number"]::-webkit-outer-spin-button,
+input[type="number"]::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+input[type="number"] {
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rise,
+  .fadein,
+  .overlay-in,
+  .dialog-in {
+    animation: none;
+  }
+  .pressable {
+    transition: none;
+  }
+  * {
+    scroll-behavior: auto !important;
+  }
 }
