@@ -22,3 +22,7 @@ alter table public.workspace_snapshots enable row level security;
 
 -- Explicitly remove any inherited grants for the public API roles.
 revoke all on public.workspace_snapshots from anon, authenticated;
+
+-- The server reaches this table only via the service-role key (which bypasses
+-- RLS); make sure that role has full table access.
+grant all on table public.workspace_snapshots to service_role;
