@@ -11,6 +11,7 @@ import { CountdownCard } from "@/components/overview/countdown-card";
 import { NextBestWork } from "@/components/overview/next-best-work";
 import { TrajectoryPanel } from "@/components/overview/trajectory-panel";
 import { CourseMini, PapersMini } from "@/components/overview/mini-panels";
+import { ResourceLinks } from "@/components/overview/resource-links";
 import { fmt } from "@/lib/utils/format";
 import { shortDate } from "@/lib/utils/time";
 
@@ -118,6 +119,8 @@ export default function OverviewPage() {
         <PapersMini official={dash.official} />
         <CourseMini course={dash.course} />
       </div>
+
+      <ResourceLinks />
     </div>
   );
 }
